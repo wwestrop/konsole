@@ -237,6 +237,16 @@ bool Session::isRunning() const
     return (_shellProcess != nullptr) && (_shellProcess->state() == QProcess::Running);
 }
 
+bool Session::hasFocus() const {
+    for (const TerminalDisplay *display : qAsConst(_views)) {
+        if (display->hasFocus()) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Session::setCodec(QTextCodec* codec)
 {
     if (isReadOnly()) {
@@ -631,15 +641,7 @@ void Session::silenceTimerDone()
         return;
     }
 
-    bool hasFocus = false;
-    for (const TerminalDisplay *display : qAsConst(_views)) {
-        if (display->hasFocus()) {
-            hasFocus = true;
-            break;
-        }
-    }
-
-    KNotification::event(hasFocus ? QStringLiteral("Silence") : QStringLiteral("SilenceHidden"),
+    KNotification::event(hasFocus() ? QStringLiteral("Silence") : QStringLiteral("SilenceHidden"),
             i18n("Silence in session '%1'", _nameTitle), QPixmap(),
             QApplication::activeWindow(),
             KNotification::CloseWhenWidgetActivated);
@@ -1698,18 +1700,8 @@ void Session::handleActivity()
     // TODO: should this hardcoded interval be user configurable?
     const int activityMaskInSeconds = 15;
 
-    bool hasFocus = false;
-    // Don't notify if the terminal is active
-    const auto &displays = _views;
-    for (const TerminalDisplay *display: displays) {
-        if (display->hasFocus()) {
-            hasFocus = true;
-            break;
-        }
-    }
-
     if (_monitorActivity && !_notifiedActivity) {
-        KNotification::event(hasFocus ? QStringLiteral("Activity") : QStringLiteral("ActivityHidden"),
+        KNotification::event(hasFocus() ? QStringLiteral("Activity") : QStringLiteral("ActivityHidden"),
                              i18n("Activity in session '%1'", _nameTitle), QPixmap(),
                              QApplication::activeWindow(),
                              KNotification::CloseWhenWidgetActivated);
@@ -1777,7 +1769,7 @@ void SessionGroup::setMasterMode(int mode)
 {
     _masterMode = mode;
 }
- 
+
 void SessionGroup::setMasterStatus(Session* session , bool master)
 {
     const bool wasMaster = _sessions[session];
