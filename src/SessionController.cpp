@@ -320,7 +320,7 @@ void SessionController::snapshot()
     if (_monitorProcessFinish) {
         bool isForegroundProcessActive = _session->isForegroundProcessActive();
         if (_wasForegroundProcessActive && !isForegroundProcessActive) {
-            KNotification::event(QStringLiteral("ProcessFinished"),
+            KNotification::event(_session->hasFocus() ? QStringLiteral("ProcessFinished") : QStringLiteral("ProcessFinishedHidden"),
                                  QStringLiteral("A process running in a monitored session has finished."),
                                  QPixmap(),
                                  QApplication::activeWindow(),
