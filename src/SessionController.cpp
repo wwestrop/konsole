@@ -56,6 +56,7 @@
 #include <KSharedConfig>
 #include <KConfigGroup>
 #include <KCodecAction>
+#include <KNotification>
 
 // Konsole
 #include "EditProfileDialog.h"
@@ -93,7 +94,6 @@ SessionController::SessionController(Session* session , TerminalDisplay* view, Q
     , _profileList(nullptr)
     , _sessionIcon(QIcon())
     , _sessionIconName(QString())
-    , _previousState(-1)
     , _searchFilter(nullptr)
     , _urlFilter(nullptr)
     , _fileFilter(nullptr)
@@ -115,6 +115,8 @@ SessionController::SessionController(Session* session , TerminalDisplay* view, Q
     , _isSearchBarEnabled(false)
     , _editProfileDialog(nullptr)
     , _searchBar(view->searchBar())
+    , _wasForegroundProcessActive(false)
+    , _monitorProcessFinish(false)
 {
     Q_ASSERT(session);
     Q_ASSERT(view);
@@ -313,6 +315,19 @@ void SessionController::snapshot()
 
     // apply new title
     _session->setTitle(Session::DisplayedTitleRole, title);
+
+    // check if foreground process ended and notify if this option was requested
+    if (_monitorProcessFinish) {
+        bool isForegroundProcessActive = _session->isForegroundProcessActive();
+        if (_wasForegroundProcessActive && !isForegroundProcessActive) {
+            KNotification::event(QStringLiteral("ProcessFinished"),
+                                 i18n("The process running in session '%1' has finished", _session->nameTitle()),
+                                 QPixmap(),
+                                 QApplication::activeWindow(),
+                                 KNotification::CloseWhenWidgetActivated);
+        }
+        _wasForegroundProcessActive = isForegroundProcessActive;
+    }
 
     // do not forget icon
     updateSessionIcon();
@@ -727,6 +742,10 @@ void SessionController::setupExtraActions()
     collection->setDefaultShortcut(toggleAction, Konsole::ACCEL + Qt::SHIFT + Qt::Key_I);
     action = collection->addAction(QStringLiteral("monitor-silence"), toggleAction);
     connect(action, &QAction::toggled, this, &Konsole::SessionController::monitorSilence);
+
+    toggleAction = new KToggleAction(i18n("Monitor for Process Finishing"), this);
+    action = collection->addAction(QStringLiteral("monitor-process-finish"), toggleAction);
+    connect(action, &QAction::toggled, this, &Konsole::SessionController::monitorProcessFinish);
 
     // Text Size
     action = collection->addAction(QStringLiteral("enlarge-font"), this, SLOT(increaseFontSize()));
@@ -1557,6 +1576,10 @@ void SessionController::monitorActivity(bool monitor)
 void SessionController::monitorSilence(bool monitor)
 {
     _session->setMonitorSilence(monitor);
+}
+void SessionController::monitorProcessFinish(bool monitor)
+{
+    _monitorProcessFinish = monitor;
 }
 void SessionController::updateSessionIcon()
 {
