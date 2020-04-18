@@ -240,9 +240,7 @@ bool Session::isRunning() const
 bool Session::hasFocus() const
 {
     for (const TerminalDisplay *display : qAsConst(_views)) {
-        if (display->hasFocus()) {
-            return true;
-        }
+        if (display->hasFocus()) return true;
     }
 
     return false;
