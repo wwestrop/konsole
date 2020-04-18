@@ -237,7 +237,8 @@ bool Session::isRunning() const
     return (_shellProcess != nullptr) && (_shellProcess->state() == QProcess::Running);
 }
 
-bool Session::hasFocus() const {
+bool Session::hasFocus() const
+{
     for (const TerminalDisplay *display : qAsConst(_views)) {
         if (display->hasFocus()) {
             return true;
