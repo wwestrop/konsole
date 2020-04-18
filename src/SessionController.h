@@ -355,7 +355,7 @@ private:
     QString _searchText;
     QPointer<IncrementalSearchBar> _searchBar;
 
-    bool _wasForegroundProcessActive;
+    QString _previousForegroundProcessName;
     bool _monitorProcessFinish;
 };
 inline bool SessionController::isValid() const

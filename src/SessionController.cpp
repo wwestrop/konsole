@@ -115,7 +115,6 @@ SessionController::SessionController(Session* session , TerminalDisplay* view, Q
     , _isSearchBarEnabled(false)
     , _editProfileDialog(nullptr)
     , _searchBar(view->searchBar())
-    , _wasForegroundProcessActive(false)
     , _monitorProcessFinish(false)
 {
     Q_ASSERT(session);
@@ -319,14 +318,14 @@ void SessionController::snapshot()
     // check if foreground process ended and notify if this option was requested
     if (_monitorProcessFinish) {
         bool isForegroundProcessActive = _session->isForegroundProcessActive();
-        if (_wasForegroundProcessActive && !isForegroundProcessActive) {
+        if (!_previousForegroundProcessName.isNull() && !isForegroundProcessActive) {
             KNotification::event(_session->hasFocus() ? QStringLiteral("ProcessFinished") : QStringLiteral("ProcessFinishedHidden"),
-                                 i18n("The process running in session '%1' has finished", _session->nameTitle()),
+                                 i18n("The process '%1' has finished running in session '%2'", _previousForegroundProcessName, _session->nameTitle()),
                                  QPixmap(),
                                  QApplication::activeWindow(),
                                  KNotification::CloseWhenWidgetActivated);
         }
-        _wasForegroundProcessActive = isForegroundProcessActive;
+        _previousForegroundProcessName = isForegroundProcessActive ? _session->foregroundProcessName() : QString::null;
     }
 
     // do not forget icon
