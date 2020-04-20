@@ -239,11 +239,8 @@ bool Session::isRunning() const
 
 bool Session::hasFocus() const
 {
-    for (const TerminalDisplay *display : qAsConst(_views)) {
-        if (display->hasFocus()) return true;
-    }
-
-    return false;
+    return std::any_of(_views.constBegin(), _views.constEnd(),
+                      [](const TerminalDisplay *display) { return display-> hasFocus(); });
 }
 
 void Session::setCodec(QTextCodec* codec)
