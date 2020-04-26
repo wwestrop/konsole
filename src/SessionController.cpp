@@ -325,7 +325,7 @@ void SessionController::snapshot()
                                  QApplication::activeWindow(),
                                  KNotification::CloseWhenWidgetActivated);
         }
-        _previousForegroundProcessName = isForegroundProcessActive ? _session->foregroundProcessName() : QString::null;
+        _previousForegroundProcessName = isForegroundProcessActive ? _session->foregroundProcessName() : QString();
     }
 
     // do not forget icon
