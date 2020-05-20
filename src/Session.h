@@ -181,10 +181,25 @@ public:
     QString tabTitleFormat(TabTitleContext context) const;
 
     /**
+     * Sets the color user by this session for tab.
+     * 
+     * @param color The background color for the tab.
+     */
+    void setColor(const QColor &color);
+    /** Returns the color used by this session for tab. */
+    QColor color() const;
+
+    /**
      * Returns true if the tab title has been changed by the user via the
      * rename-tab dialog.
      */
     bool isTabTitleSetByUser() const;
+
+    /**
+     * Returns true if the tab color has been changed by the user via the
+     * rename-tab dialog.
+     */
+    bool isTabColorSetByUser() const;
 
     /** Returns the arguments passed to the shell process when run() is called. */
     QStringList arguments() const;
@@ -391,6 +406,7 @@ public:
     // or false if it's the primary/normal buffer
     bool isPrimaryScreen();
     void tabTitleSetByUser(bool set);
+    void tabColorSetByUser(bool set);
 
     enum Notification {
         NoNotification = 0,
@@ -814,8 +830,10 @@ private:
 
     QString _localTabTitleFormat;
     QString _remoteTabTitleFormat;
+    QColor _tabColor;
 
     bool _tabTitleSetByUser;
+    bool _tabColorSetByUser;
 
     QString _iconName;
     QString _iconText;        // not actually used

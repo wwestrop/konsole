@@ -36,8 +36,8 @@
 
 using namespace Konsole;
 
-ProfileSettings::ProfileSettings(QWidget* aParent)
-    : QWidget(aParent)
+ProfileSettings::ProfileSettings(QWidget* parent)
+    : QWidget(parent)
     , _sessionModel(new QStandardItemModel(this))
 {
     setupUi(this);
@@ -274,7 +274,7 @@ void ProfileSettings::updateDefaultItem()
             itemFont.setItalic(true);
             item->setFont(itemFont);
             item->setText(cleanItemName + defaultItemSuffix);
-        } else if (!isDefault) {
+        } else {
             // FIXME: use default font
             itemFont.setItalic(false);
             item->setFont(itemFont);
@@ -452,8 +452,8 @@ void StyledBackgroundPainter::drawBackground(QPainter* painter, const QStyleOpti
     style->drawPrimitive(QStyle::PE_PanelItemViewItem, &option, painter, widget);
 }
 
-ShortcutItemDelegate::ShortcutItemDelegate(QObject* aParent)
-    : QStyledItemDelegate(aParent),
+ShortcutItemDelegate::ShortcutItemDelegate(QObject* parent)
+    : QStyledItemDelegate(parent),
     _modifiedEditors(QSet<QWidget *>()),
     _itemsBeingEdited(QSet<QModelIndex>())
 {

@@ -176,9 +176,8 @@ Profile::Ptr ProfileManager::loadProfile(const QString& shortPath)
     if (recursionGuard.contains(path)) {
         qCDebug(KonsoleDebug) << "Ignoring attempt to load profile recursively from" << path;
         return _fallbackProfile;
-    } else {
-        recursionGuard.push(path);
     }
+    recursionGuard.push(path);
 
     // load the profile
     ProfileReader reader;
@@ -309,8 +308,7 @@ void ProfileManager::saveSettings()
 
 QList<Profile::Ptr> ProfileManager::sortedFavorites()
 {
-    // Once Qt5.14+ is the mininum, change to use range constructors
-    QList<Profile::Ptr> favorites = findFavorites().toList();
+    QList<Profile::Ptr> favorites = findFavorites().values();
 
     sortProfiles(favorites);
     return favorites;
@@ -320,14 +318,12 @@ QList<Profile::Ptr> ProfileManager::allProfiles()
 {
     loadAllProfiles();
 
-    // Once Qt5.14+ is the mininum, change to use range constructors
-    return _profiles.toList();
+    return _profiles.values();
 }
 
 QList<Profile::Ptr> ProfileManager::loadedProfiles() const
 {
-    // Once Qt5.14+ is the mininum, change to use range constructors
-    return _profiles.toList();
+    return _profiles.values();
 }
 
 Profile::Ptr ProfileManager::defaultProfile() const
@@ -643,9 +639,12 @@ void ProfileManager::loadFavorites()
     QSet<QString> favoriteSet;
 
     if (favoriteGroup.hasKey("Favorites")) {
-        QStringList list = favoriteGroup.readEntry("Favorites", QStringList());
-        // Once Qt5.14+ is the mininum, change to use range constructors
+        const QStringList list = favoriteGroup.readEntry("Favorites", QStringList());
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+        favoriteSet = QSet<QString>(list.begin(), list.end());
+#else
         favoriteSet = QSet<QString>::fromList(list);
+#endif
     }
 
     // look for favorites among those already loaded

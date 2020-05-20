@@ -44,7 +44,6 @@
 #include <QDrag>
 #include <QDesktopServices>
 #include <QAccessible>
-#include <QtMath>
 
 // KDE
 #include <KShell>
@@ -238,13 +237,13 @@ void TerminalDisplay::fontChange(const QFont&)
     // "Base character width on widest ASCII character. This prevents too wide
     //  characters in the presence of double wide (e.g. Japanese) characters."
     // Get the width from representative normal width characters
-    _fontWidth = qRound((static_cast<double>(fm.width(QStringLiteral(REPCHAR))) / static_cast<double>(qstrlen(REPCHAR))));
+    _fontWidth = qRound((static_cast<double>(fm.horizontalAdvance(QStringLiteral(REPCHAR))) / static_cast<double>(qstrlen(REPCHAR))));
 
     _fixedFont = true;
 
-    const int fw = fm.width(QLatin1Char(REPCHAR[0]));
+    const int fw = fm.horizontalAdvance(QLatin1Char(REPCHAR[0]));
     for (unsigned int i = 1; i < qstrlen(REPCHAR); i++) {
-        if (fw != fm.width(QLatin1Char(REPCHAR[i]))) {
+        if (fw != fm.horizontalAdvance(QLatin1Char(REPCHAR[i]))) {
             _fixedFont = false;
             break;
         }
@@ -745,16 +744,18 @@ void TerminalDisplay::drawCursor(QPainter& painter,
     QRectF cursorRect = rect.adjusted(0, 1, 0, 0);
 
     QColor cursorColor = _cursorColor.isValid() ? _cursorColor : foregroundColor;
-    painter.setPen(cursorColor);
+    QPen pen(cursorColor);
+    // TODO: the relative pen width to draw the cursor is a bit hacky
+    // and set to 1/12 of the font width. Visually it seems to work at
+    // all scales but there must be better ways to do it
+    const qreal width = qMax(_fontWidth / 12.0, 1.0);
+    const qreal halfWidth = width / 2.0;
+    pen.setWidthF(width);
+    painter.setPen(pen);
 
     if (_cursorShape == Enum::BlockCursor) {
-        // draw the cursor outline, adjusting the area so that
-        // it is draw entirely inside 'rect'
-        int penWidth = qMax(1, painter.pen().width());
-        painter.drawRect(cursorRect.adjusted(int(penWidth / 2) + 0.5,
-                                             int(penWidth / 2) + 0.5,
-                                             - int(penWidth / 2) - penWidth % 2 + 0.5,
-                                             - int(penWidth / 2) - penWidth % 2 + 0.5));
+        // draw the cursor outline, adjusting the area so that it is draw entirely inside 'rect'
+        painter.drawRect(cursorRect.adjusted(halfWidth, halfWidth, -halfWidth, -halfWidth));
 
         // draw the cursor body only when the widget has focus
         if (hasFocus()) {
@@ -766,17 +767,17 @@ void TerminalDisplay::drawCursor(QPainter& painter,
             characterColor = _cursorTextColor.isValid() ? _cursorTextColor : backgroundColor;
         }
     } else if (_cursorShape == Enum::UnderlineCursor) {
-        QLineF line(cursorRect.left() + 0.5,
-                    cursorRect.bottom() - 0.5,
-                    cursorRect.right() - 0.5,
-                    cursorRect.bottom() - 0.5);
+        QLineF line(cursorRect.left() + halfWidth,
+                    cursorRect.bottom() - halfWidth,
+                    cursorRect.right() - halfWidth,
+                    cursorRect.bottom() - halfWidth);
         painter.drawLine(line);
 
     } else if (_cursorShape == Enum::IBeamCursor) {
-        QLineF line(cursorRect.left() + 0.5,
-                    cursorRect.top() + 0.5,
-                    cursorRect.left() + 0.5,
-                    cursorRect.bottom() - 0.5);
+        QLineF line(cursorRect.left() + halfWidth,
+                    cursorRect.top() + halfWidth,
+                    cursorRect.left() + halfWidth,
+                    cursorRect.bottom() - halfWidth);
         painter.drawLine(line);
     }
 }
@@ -1688,8 +1689,7 @@ void TerminalDisplay::drawContents(QPainter& paint, const QRect& rect)
             }
 
             //Apply text scaling matrix.
-            // TODO: setWorldMatrix is obsolete, change to setWorldTransform
-            paint.setWorldMatrix(textScale, true);
+            paint.setWorldTransform(QTransform(textScale), true);
 
             //calculate the area in which the text will be drawn
             QRect textArea = QRect(_contentRect.left() + contentsRect().left() + _fontWidth * x,
@@ -1723,8 +1723,7 @@ void TerminalDisplay::drawContents(QPainter& paint, const QRect& rect)
             _fixedFont = save__fixedFont;
 
             //reset back to single-width, single-height _lines
-            // TODO: setWorldMatrix is obsolete, change to setWorldTransform
-            paint.setWorldMatrix(textScale.inverted(), true);
+            paint.setWorldTransform(QTransform(textScale.inverted()), true);
 
             if (y < _lineProperties.size() - 1) {
                 //double-height _lines are represented by two adjacent _lines
@@ -2375,10 +2374,12 @@ void TerminalDisplay::mouseMoveEvent(QMouseEvent* ev)
 
 void TerminalDisplay::leaveEvent(QEvent *)
 {
-    // remove underline from an active link when cursor leaves the widget area
+    // remove underline from an active link when cursor leaves the widget area,
+    // also restore regular mouse cursor shape
     if(!_mouseOverHotspotArea.isEmpty()) {
         update(_mouseOverHotspotArea);
         _mouseOverHotspotArea = QRegion();
+        setCursor(Qt::IBeamCursor);
     }
 }
 
@@ -2488,8 +2489,6 @@ void TerminalDisplay::extendSelection(const QPoint& position)
 
     int offset = 0;
     if (!_wordSelectionMode && !_lineSelectionMode) {
-        QChar selClass;
-
         const bool left_not_right = (here.y() < _iPntSelCorr.y() ||
                                      (here.y() == _iPntSelCorr.y() && here.x() < _iPntSelCorr.x()));
         const bool old_left_not_right = (_pntSelCorr.y() < _iPntSelCorr.y() ||
@@ -2499,13 +2498,8 @@ void TerminalDisplay::extendSelection(const QPoint& position)
         // Find left (left_not_right ? from here : from start)
         const QPoint left = left_not_right ? here : _iPntSelCorr;
 
-        // Find left (left_not_right ? from start : from here)
+        // Find right (left_not_right ? from start : from here)
         QPoint right = left_not_right ? _iPntSelCorr : here;
-        if (right.x() > 0 && !_columnSelectionMode) {
-            if (right.x() - 1 < _columns && right.y() < _lines) {
-                selClass = charClass(_image[loc(right.x() - 1, right.y())]);
-            }
-        }
 
         // Pick which is start (ohere) and which is extension (here)
         if (left_not_right) {
@@ -2700,7 +2694,7 @@ void TerminalDisplay::mouseDoubleClickEvent(QMouseEvent* ev)
 void TerminalDisplay::wheelEvent(QWheelEvent* ev)
 {
     // Only vertical scrolling is supported
-    if (ev->orientation() != Qt::Vertical) {
+    if (ev->angleDelta().x() != 0) {
         return;
     }
 
@@ -2761,7 +2755,11 @@ void TerminalDisplay::wheelEvent(QWheelEvent* ev)
 
             int charLine;
             int charColumn;
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+            getCharacterPosition(ev->position().toPoint() , charLine , charColumn, !_usesMouseTracking);
+#else
             getCharacterPosition(ev->pos() , charLine , charColumn, !_usesMouseTracking);
+#endif
             const int steps = _scrollWheelState.consumeLegacySteps(ScrollState::DEFAULT_ANGLE_SCROLL_LINE);
             const int button = (steps > 0) ? 4 : 5;
             for (int i = 0; i < abs(steps); ++i) {
@@ -4072,7 +4070,7 @@ void CompositeWidgetFocusWatcher::registerWidgetAndChildren(QWidget *widget)
     }
     for (auto *child: widget->children()) {
         auto *childWidget = qobject_cast<QWidget *>(child);
-        if (childWidget) {
+        if (childWidget != nullptr) {
             registerWidgetAndChildren(childWidget);
         }
     }

@@ -29,11 +29,10 @@
 #include <QRegularExpression>
 #include <QMultiHash>
 
+#include <memory>
+
 // Konsole
 #include "Character.h"
-
-// std
-#include <optional>
 
 class QAction;
 
@@ -168,7 +167,7 @@ protected:
     /** Returns the internal buffer */
     const QString *buffer();
     /** Converts a character position within buffer() to a line and column */
-    void getLineColumn(int position, int &startLine, int &startColumn);
+    std::pair<int,int> getLineColumn(int position);
 
 private:
     Q_DISABLE_COPY(Filter)
@@ -343,7 +342,7 @@ private:
  * The hotSpots() method return all of the hotspots in the text and on
  * a given line respectively.
  */
-class FilterChain : protected QList<Filter *>
+class FilterChain
 {
 public:
     virtual ~FilterChain();
@@ -369,6 +368,8 @@ public:
     QSharedPointer<Filter::HotSpot> hotSpotAt(int line, int column) const;
     /** Returns a list of all the hotspots in all the chain's filters */
     QList<QSharedPointer<Filter::HotSpot>> hotSpots() const;
+protected:
+    QList<Filter *> _filters;
 };
 
 /** A filter chain which processes character images from terminal displays */
@@ -392,8 +393,10 @@ public:
 private:
     Q_DISABLE_COPY(TerminalImageFilterChain)
 
-    QString *_buffer;
-    QList<int> *_linePositions;
+/* usually QStrings and QLists are not supposed to be in the heap, here we have a problem:
+    we need a shared memory space between many filter objeccts, defined by this TerminalImage. */
+    std::unique_ptr<QString> _buffer;
+    std::unique_ptr<QList<int>> _linePositions;
 };
 }
 #endif //FILTER_H

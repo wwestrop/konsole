@@ -44,76 +44,62 @@ using namespace Konsole;
 
 FilterChain::~FilterChain()
 {
-    QMutableListIterator<Filter *> iter(*this);
-
-    while (iter.hasNext()) {
-        Filter *filter = iter.next();
-        iter.remove();
-        delete filter;
-    }
+    qDeleteAll(_filters);
 }
 
 void FilterChain::addFilter(Filter *filter)
 {
-    append(filter);
+    _filters.append(filter);
 }
 
 void FilterChain::removeFilter(Filter *filter)
 {
-    removeAll(filter);
+    _filters.removeAll(filter);
 }
 
 void FilterChain::reset()
 {
-    QListIterator<Filter *> iter(*this);
-    while (iter.hasNext()) {
-        iter.next()->reset();
+    for(auto *filter : _filters) {
+        filter->reset();
     }
 }
 
 void FilterChain::setBuffer(const QString *buffer, const QList<int> *linePositions)
 {
-    QListIterator<Filter *> iter(*this);
-    while (iter.hasNext()) {
-        iter.next()->setBuffer(buffer, linePositions);
+    for(auto *filter : _filters) {
+        filter->setBuffer(buffer, linePositions);
     }
 }
 
 void FilterChain::process()
 {
-    QListIterator<Filter *> iter(*this);
-    while (iter.hasNext()) {
-        iter.next()->process();
+    for( auto *filter : _filters) {
+        filter->process();
     }
 }
 
 void FilterChain::clear()
 {
-    QList<Filter *>::clear();
+    _filters.clear();
 }
 
 QSharedPointer<Filter::HotSpot> FilterChain::hotSpotAt(int line, int column) const
 {
-    QListIterator<Filter *> iter(*this);
-    while (iter.hasNext()) {
-        Filter *filter = iter.next();
+    for(auto *filter : _filters) {
         QSharedPointer<Filter::HotSpot> spot = filter->hotSpotAt(line, column);
         if (spot != nullptr) {
-            return spot;
+           return spot;
         }
     }
-
     return nullptr;
 }
 
 QList<QSharedPointer<Filter::HotSpot>> FilterChain::hotSpots() const
 {
     QList<QSharedPointer<Filter::HotSpot>> list;
-    QListIterator<Filter *> iter(*this);
-    while (iter.hasNext()) {
-        Filter *filter = iter.next();
-        list << filter->hotSpots();
-    }
+    for (auto *filter : _filters) {
+        list.append(filter->hotSpots());
+   }
     return list;
 }
 
@@ -123,16 +109,12 @@ TerminalImageFilterChain::TerminalImageFilterChain() :
 {
 }
 
-TerminalImageFilterChain::~TerminalImageFilterChain()
-{
-    delete _buffer;
-    delete _linePositions;
-}
+TerminalImageFilterChain::~TerminalImageFilterChain() = default;
 
 void TerminalImageFilterChain::setImage(const Character * const image, int lines, int columns,
                                         const QVector<LineProperty> &lineProperties)
 {
-    if (empty()) {
+    if (_filters.empty()) {
         return;
     }
 
@@ -144,18 +126,12 @@ void TerminalImageFilterChain::setImage(const Character * const image, int lines
     decoder.setTrailingWhitespace(true);
 
     // setup new shared buffers for the filters to process on
-    auto newBuffer = new QString();
-    auto newLinePositions = new QList<int>();
-    setBuffer(newBuffer, newLinePositions);
+    _buffer.reset(new QString());
+    _linePositions.reset(new QList<int>());
 
-    // free the old buffers
-    delete _buffer;
-    delete _linePositions;
+    setBuffer(_buffer.get(), _linePositions.get());
 
-    _buffer = newBuffer;
-    _linePositions = newLinePositions;
-
-    QTextStream lineStream(_buffer);
+    QTextStream lineStream(_buffer.get());
     decoder.begin(&lineStream);
 
     for (int i = 0; i < lines; i++) {
@@ -202,27 +178,22 @@ void Filter::setBuffer(const QString *buffer, const QList<int> *linePositions)
     _linePositions = linePositions;
 }
 
-void Filter::getLineColumn(int position, int &startLine, int &startColumn)
+std::pair<int, int> Filter::getLineColumn(int position)
 {
     Q_ASSERT(_linePositions);
     Q_ASSERT(_buffer);
 
     for (int i = 0; i < _linePositions->count(); i++) {
-        int nextLine = 0;
-
-        if (i == _linePositions->count() - 1) {
-            nextLine = _buffer->length() + 1;
-        } else {
-            nextLine = _linePositions->value(i + 1);
-        }
+        const int nextLine = i == _linePositions->count() - 1
+            ? _buffer->length() + 1
+            : _linePositions->value(i + 1);
 
         if (_linePositions->value(i) <= position && position < nextLine) {
-            startLine = i;
-            startColumn = Character::stringWidth(buffer()->mid(_linePositions->value(i),
-                                                     position - _linePositions->value(i)));
-            return;
+            return std::make_pair(i,  Character::stringWidth(buffer()->mid(_linePositions->value(i),
+                                                     position - _linePositions->value(i))));
         }
     }
+    return std::make_pair(-1, -1);
 }
 
 const QString *Filter::buffer()
@@ -275,7 +246,7 @@ Filter::HotSpot::HotSpot(int startLine, int startColumn, int endLine, int endCol
 
 QList<QAction *> Filter::HotSpot::actions()
 {
-    return QList<QAction *>();
+    return {};
 }
 
 int Filter::HotSpot::startLine() const
@@ -354,17 +325,16 @@ void RegExpFilter::process()
     QRegularExpressionMatchIterator iterator(_searchText.globalMatch(*text));
     while (iterator.hasNext()) {
         QRegularExpressionMatch match(iterator.next());
+        std::pair<int, int> start = getLineColumn(match.capturedStart());
+        std::pair<int, int> end = getLineColumn(match.capturedEnd());
 
-        int startLine = 0;
-        int endLine = 0;
-        int startColumn = 0;
-        int endColumn = 0;
+        QSharedPointer<Filter::HotSpot> spot(
+            newHotSpot(start.first, start.second,
+                       end.first, end.second,
+                       match.capturedTexts()
+            )
+        );
 
-        getLineColumn(match.capturedStart(), startLine, startColumn);
-        getLineColumn(match.capturedEnd(), endLine, endColumn);
-
-        QSharedPointer<Filter::HotSpot> spot(newHotSpot(startLine, startColumn,
-                                                 endLine, endColumn, match.capturedTexts()));
         if (spot == nullptr) {
             continue;
         }
@@ -397,14 +367,9 @@ UrlFilter::HotSpot::HotSpot(int startLine, int startColumn, int endLine, int end
 UrlFilter::HotSpot::UrlType UrlFilter::HotSpot::urlType() const
 {
     const QString url = capturedTexts().at(0);
-
-    if (FullUrlRegExp.match(url).hasMatch()) {
-        return StandardUrl;
-    } else if (EmailAddressRegExp.match(url).hasMatch()) {
-        return Email;
-    } else {
-        return Unknown;
-    }
+    return FullUrlRegExp.match(url).hasMatch() ? StandardUrl
+         : EmailAddressRegExp.match(url).hasMatch() ? Email
+         : Unknown;
 }
 
 void UrlFilter::HotSpot::activate(QObject *object)
@@ -460,9 +425,7 @@ UrlFilter::UrlFilter()
     setRegExp(CompleteUrlRegExp);
 }
 
-UrlFilter::HotSpot::~HotSpot()
-{
-}
+UrlFilter::HotSpot::~HotSpot() = default;
 
 QList<QAction *> UrlFilter::HotSpot::actions()
 {
@@ -562,6 +525,7 @@ QString createFileRegex(const QStringList &patterns, const QString &filePattern,
     QStringList prefixes = patterns.filter(QRegularExpression(QStringLiteral("^") + filePattern + QStringLiteral("+\\*$")));
     const QStringList fullNames = patterns.filter(QRegularExpression(QStringLiteral("^") + filePattern + QStringLiteral("$")));
 
+
     suffixes.replaceInStrings(QStringLiteral("*"), QString());
     suffixes.replaceInStrings(QStringLiteral("."), QStringLiteral("\\."));
     prefixes.replaceInStrings(QStringLiteral("*"), QString());
@@ -614,9 +578,7 @@ FileFilter::FileFilter(Session *session) :
     setRegExp(re);
 }
 
-FileFilter::HotSpot::~HotSpot()
-{
-}
+FileFilter::HotSpot::~HotSpot() = default;
 
 QList<QAction *> FileFilter::HotSpot::actions()
 {

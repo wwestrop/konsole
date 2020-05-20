@@ -183,7 +183,7 @@ void Application::createWindow(const Profile::Ptr &profile, const QString &direc
 
 void Application::detachTerminals(ViewSplitter *splitter,const QHash<TerminalDisplay*, Session*>& sessionsMap)
 {
-    MainWindow *currentWindow = qobject_cast<MainWindow*>(sender());
+    auto *currentWindow = qobject_cast<MainWindow*>(sender());
     MainWindow *window = newMainWindow();
     ViewManager *manager = window->viewManager();
 
@@ -336,6 +336,7 @@ void Application::createTabFromArgs(MainWindow *window, const QHash<QString, QSt
     const QString &command = tokens[QStringLiteral("command")];
     const QString &profile = tokens[QStringLiteral("profile")];
     const QString &workdir = tokens[QStringLiteral("workdir")];
+    const QColor &color = tokens[QStringLiteral("tabcolor")];
 
     Profile::Ptr baseProfile;
     if (!profile.isEmpty()) {
@@ -362,6 +363,12 @@ void Application::createTabFromArgs(MainWindow *window, const QHash<QString, QSt
     if (!title.isEmpty()) {
         newProfile->setProperty(Profile::LocalTabTitleFormat, title);
         newProfile->setProperty(Profile::RemoteTabTitleFormat, title);
+        shouldUseNewProfile = true;
+    }
+
+    // For tab color support
+    if (color.isValid()) {
+        newProfile->setProperty(Profile::TabColor, color);
         shouldUseNewProfile = true;
     }
 
@@ -543,9 +550,8 @@ Profile::Ptr Application::processProfileChangeArgs(Profile::Ptr baseProfile)
 
     if (shouldUseNewProfile) {
         return newProfile;
-    } else {
-        return baseProfile;
     }
+    return baseProfile;
 }
 
 void Application::startBackgroundMode(MainWindow *window)

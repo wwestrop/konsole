@@ -165,7 +165,8 @@ SessionController::SessionController(Session* session , TerminalDisplay* view, Q
     connect(_session.data(), &Konsole::Session::sessionAttributeChanged, this, &Konsole::SessionController::sessionAttributeChanged);
     connect(_session.data(), &Konsole::Session::readOnlyChanged, this, &Konsole::SessionController::sessionReadOnlyChanged);
 
-    connect(this, &Konsole::SessionController::tabRenamedByUser,  _session,  &Konsole::Session::tabTitleSetByUser);
+    connect(this, &Konsole::SessionController::tabRenamedByUser, _session, &Konsole::Session::tabTitleSetByUser);
+    connect(this, &Konsole::SessionController::tabColoredByUser, _session, &Konsole::Session::tabColorSetByUser);
 
     connect(_session.data() , &Konsole::Session::currentDirectoryChanged , this , &Konsole::SessionController::currentDirectoryChanged);
 
@@ -232,7 +233,7 @@ SessionController::~SessionController()
     if (!_editProfileDialog.isNull()) {
         delete _editProfileDialog.data();
     }
-    if(factory()) {
+    if(factory() != nullptr) {
         factory()->removeClient(this);
     }
 }
@@ -311,9 +312,18 @@ void SessionController::snapshot()
     if (title.isEmpty()) {
         title = _session->title(Session::NameRole);
     }
+    
+    QColor color = _session->color();
+    // use the fallback color if needed
+    if (!color.isValid()) {
+        color = QColor(QColor::Invalid);
+    }
 
     // apply new title
     _session->setTitle(Session::DisplayedTitleRole, title);
+
+    // apply new color
+    _session->setColor(color);
 
     // check if foreground process ended and notify if this option was requested
     if (_monitorProcessFinish) {
@@ -362,7 +372,8 @@ void SessionController::openUrl(const QUrl& url)
     } else if (url.scheme().isEmpty()) {
         // QUrl couldn't parse what the user entered into the URL field
         // so just dump it to the shell
-        QString command = url.toDisplayString();
+        // If you change this, change it also in autotests/BookMarkTest.cpp
+        QString command = QUrl::fromPercentEncoding(url.toEncoded());
         if (!command.isEmpty()) {
             _session->sendTextToTerminal(command, QLatin1Char('\r'));
         }
@@ -450,6 +461,12 @@ void SessionController::updateWebSearchMenu()
     searchText = searchText.replace(QLatin1Char('\n'), QLatin1Char(' ')).replace(QLatin1Char('\r'), QLatin1Char(' ')).simplified();
 
     if (searchText.isEmpty()) {
+        return;
+    }
+
+    // Is 'Enable Web shortcuts' checked in System Settings?
+    KSharedConfigPtr kuriikwsConfig = KSharedConfig::openConfig(QStringLiteral("kuriikwsfilterrc"));
+    if (!kuriikwsConfig->group("General").readEntry("EnableWebShortcuts", true)) {
         return;
     }
 
@@ -870,10 +887,12 @@ void SessionController::renameSession()
 {
     const QString &sessionLocalTabTitleFormat = _session->tabTitleFormat(Session::LocalTabTitle);
     const QString &sessionRemoteTabTitleFormat = _session->tabTitleFormat(Session::RemoteTabTitle);
+    const QColor &sessionTabColor = _session->color();
 
     QScopedPointer<RenameTabDialog> dialog(new RenameTabDialog(QApplication::activeWindow()));
     dialog->setTabTitleText(sessionLocalTabTitleFormat);
     dialog->setRemoteTabTitleText(sessionRemoteTabTitleFormat);
+    dialog->setColor(sessionTabColor);
 
     if (_session->isRemote()) {
         dialog->focusRemoteTabTitleText();
@@ -890,6 +909,7 @@ void SessionController::renameSession()
     if (result != 0) {
         const QString &tabTitle = dialog->tabTitleText();
         const QString &remoteTabTitle = dialog->remoteTabTitleText();
+        const QColor &tabColor = dialog->color();
 
         if (tabTitle != sessionLocalTabTitleFormat) {
             _session->setTabTitleFormat(Session::LocalTabTitle, tabTitle);
@@ -901,6 +921,12 @@ void SessionController::renameSession()
         if(remoteTabTitle != sessionRemoteTabTitleFormat) {
             _session->setTabTitleFormat(Session::RemoteTabTitle, remoteTabTitle);
             emit tabRenamedByUser(true);
+            snapshot();
+        }
+
+        if (tabColor != sessionTabColor) {
+            _session->setColor(tabColor);
+            emit tabColoredByUser(true);
             snapshot();
         }
     }
@@ -1076,9 +1102,12 @@ void SessionController::copyInputToAllTabs()
     // Find our window ...
     const KXmlGuiWindow* myWindow = findWindow(_view);
 
-    // Once Qt5.14+ is the mininum, change to use range constructors
-    QSet<Session*> group =
-        QSet<Session*>::fromList(SessionManager::instance()->sessions());
+    const QList<Session *> sessionsList = SessionManager::instance()->sessions();
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+    QSet<Session*> group(sessionsList.begin(), sessionsList.end());
+#else
+    QSet<Session*> group = QSet<Session*>::fromList(sessionsList);
+#endif
     for (auto session : group) {
         // First, ensure that the session is removed
         // (necessary to avoid duplicates on addSession()!)
@@ -1108,8 +1137,13 @@ void SessionController::copyInputToSelectedTabs()
     QPointer<CopyInputDialog> dialog = new CopyInputDialog(_view);
     dialog->setMasterSession(_session);
 
-    // Once Qt5.14+ is the mininum, change to use range constructors
-    QSet<Session*> currentGroup = QSet<Session*>::fromList(_copyToGroup->sessions());
+    const QList<Session*> sessionsList = _copyToGroup->sessions();
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+    QSet<Session*> currentGroup(sessionsList.begin(), sessionsList.end());
+#else
+    QSet<Session*> currentGroup = QSet<Session*>::fromList(sessionsList);
+#endif
+
     currentGroup.remove(_session);
 
     dialog->setChosenSessions(currentGroup);
@@ -1147,8 +1181,13 @@ void SessionController::copyInputToNone()
     }
 
     // Once Qt5.14+ is the mininum, change to use range constructors
-    QSet<Session*> group =
-        QSet<Session*>::fromList(SessionManager::instance()->sessions());
+    const QList<Session*> groupList = SessionManager::instance()->sessions();
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+    QSet<Session*> group(groupList.begin(), groupList.end());
+#else
+    QSet<Session*> group = QSet<Session*>::fromList(groupList);
+#endif
+
     for (auto iterator : group) {
         Session* session = iterator;
 
@@ -1638,10 +1677,7 @@ bool SessionController::isReadOnly() const
 
 bool SessionController::isCopyInputActive() const
 {
-    if ((_copyToGroup != nullptr) && _copyToGroup->sessions().count() > 1) {
-        return true;
-    }
-    return false;
+    return ((_copyToGroup != nullptr) && _copyToGroup->sessions().count() > 1);
 }
 
 void SessionController::sessionAttributeChanged()
@@ -1664,6 +1700,7 @@ void SessionController::sessionAttributeChanged()
     }
 
     setTitle(title);
+    setColor(_session->color());
     emit rawTitleChanged();
 }
 
@@ -1703,7 +1740,7 @@ void SessionController::showDisplayContextMenu(const QPoint& position)
 
         // prepend content-specific actions such as "Open Link", "Copy Email Address" etc.
         QSharedPointer<Filter::HotSpot> hotSpot = _view->filterActions(position);
-        if (hotSpot) {
+        if (hotSpot != nullptr) {
             popup->insertActions(popup->actions().value(0, nullptr), hotSpot->actions() << contentSeparator );
 
         }

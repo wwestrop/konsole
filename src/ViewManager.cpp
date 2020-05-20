@@ -1023,7 +1023,7 @@ QStringList ViewManager::sessionList()
 
 int ViewManager::currentSession()
 {
-    if (_pluggedController) {
+    if (_pluggedController != nullptr) {
         Q_ASSERT(_pluggedController->session() != nullptr);
         return _pluggedController->session()->sessionId();
     }
@@ -1079,6 +1079,16 @@ int ViewManager::newSession(const QString &profile, const QString &directory)
 QString ViewManager::defaultProfile()
 {
     return ProfileManager::instance()->defaultProfile()->name();
+}
+
+void ViewManager::setDefaultProfile(const QString &profileName)
+{
+    const QList<Profile::Ptr> profiles = ProfileManager::instance()->allProfiles();
+    for (const Profile::Ptr &profile : profiles) {
+        if (profile->name() == profileName) {
+            ProfileManager::instance()->setDefaultProfile(profile);
+        }
+    }
 }
 
 QStringList ViewManager::profileList()
