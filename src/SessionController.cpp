@@ -76,6 +76,7 @@
 #include "PrintOptions.h"
 #include "SaveHistoryTask.h"
 #include "SearchHistoryTask.h"
+#include "SessionGroup.h"
 
 // For Unix signal names
 #include <csignal>
@@ -312,7 +313,7 @@ void SessionController::snapshot()
     if (title.isEmpty()) {
         title = _session->title(Session::NameRole);
     }
-    
+
     QColor color = _session->color();
     // use the fallback color if needed
     if (!color.isValid()) {
@@ -1742,7 +1743,8 @@ void SessionController::showDisplayContextMenu(const QPoint& position)
         QSharedPointer<Filter::HotSpot> hotSpot = _view->filterActions(position);
         if (hotSpot != nullptr) {
             popup->insertActions(popup->actions().value(0, nullptr), hotSpot->actions() << contentSeparator );
-
+            popup->addAction(contentSeparator);
+            hotSpot->setupMenu(popup.data());
         }
 
         // always update this submenu before showing the context menu,

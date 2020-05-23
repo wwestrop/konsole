@@ -21,6 +21,7 @@
 #include "Filter.h"
 
 #include "konsoledebug.h"
+#include <algorithm>
 
 // Qt
 #include <QAction>
@@ -31,10 +32,14 @@
 #include <QString>
 #include <QTextStream>
 #include <QUrl>
+#include <QMenu>
 
 // KDE
 #include <KLocalizedString>
 #include <KRun>
+#include <KFileItem>
+#include <KFileItemListProperties>
+#include <KFileItemActions>
 
 // Konsole
 #include "Session.h"
@@ -247,6 +252,11 @@ Filter::HotSpot::HotSpot(int startLine, int startColumn, int endLine, int endCol
 QList<QAction *> Filter::HotSpot::actions()
 {
     return {};
+}
+
+void Filter::HotSpot::setupMenu(QMenu *)
+{
+
 }
 
 int Filter::HotSpot::startLine() const
@@ -483,14 +493,10 @@ QSharedPointer<Filter::HotSpot> FileFilter::newHotSpot(int startLine, int startC
     // Return nullptr if it's not:
     // <current dir>/filename
     // <current dir>/childDir/filename
-    bool isChild = false;
-    for (const QString &s : _currentDirContents) {
-        if (filename.startsWith(s)) {
-            isChild = true;
-            break;
-        }
-    }
-    if (!isChild) {
+    auto match = std::find_if(std::begin(_currentDirContents), std::end(_currentDirContents),
+        [filename](const QString& s) { return filename.startsWith(s); });
+
+    if (match == std::end(_currentDirContents)) {
         return nullptr;
     }
 
@@ -519,62 +525,21 @@ void FileFilter::HotSpot::activate(QObject *)
     new KRun(QUrl::fromLocalFile(_filePath), QApplication::activeWindow());
 }
 
-QString createFileRegex(const QStringList &patterns, const QString &filePattern, const QString &pathPattern)
-{
-    QStringList suffixes = patterns.filter(QRegularExpression(QStringLiteral("^\\*") + filePattern + QStringLiteral("$")));
-    QStringList prefixes = patterns.filter(QRegularExpression(QStringLiteral("^") + filePattern + QStringLiteral("+\\*$")));
-    const QStringList fullNames = patterns.filter(QRegularExpression(QStringLiteral("^") + filePattern + QStringLiteral("$")));
-
-
-    suffixes.replaceInStrings(QStringLiteral("*"), QString());
-    suffixes.replaceInStrings(QStringLiteral("."), QStringLiteral("\\."));
-    prefixes.replaceInStrings(QStringLiteral("*"), QString());
-    prefixes.replaceInStrings(QStringLiteral("."), QStringLiteral("\\."));
-
-    return QString(
-        // Optional path in front
-        pathPattern + QLatin1Char('?')
-        + QLatin1Char('(')
-        // Files with known suffixes, e.g. "[A-Za-z0-9\\._\\-]+(txt|cpp|h|xml)"
-        + filePattern + QLatin1Char('(') + suffixes.join(QLatin1Char('|')) + QLatin1Char(')')
-        + QLatin1Char('|')
-        // Files with known prefixes, e.g. "(Makefile\\.)[A-Za-z0-9\\._\\-]+" to match "Makefile.am"
-        + QLatin1Char('(') + prefixes.join(QLatin1Char('|')) + QLatin1Char(')') + filePattern
-        + QLatin1Char('|')
-        // Files with known full names, e.g. "ChangeLog|COPYING"
-        + fullNames.join(QLatin1Char('|'))
-        + QLatin1Char(')')
-    );
-}
-
 FileFilter::FileFilter(Session *session) :
     _session(session)
     , _dirPath(QString())
     , _currentDirContents(QStringList())
 {
-    static QRegularExpression re = QRegularExpression(QString(), QRegularExpression::DontCaptureOption);
-    if (re.pattern().isEmpty()) {
-        QStringList patterns;
-        QMimeDatabase mimeDatabase;
-        const QList<QMimeType> allMimeTypes = mimeDatabase.allMimeTypes();
-        for (const QMimeType &mimeType : allMimeTypes) {
-            patterns.append(mimeType.globPatterns());
-        }
-
-        patterns.removeDuplicates();
-
-        const QString fileRegex = createFileRegex(patterns,
-                                                  QStringLiteral("[A-Za-z0-9\\._\\-]+"),    // filenames regex
-                                                  QStringLiteral("([A-Za-z0-9\\._\\-/]+/)") // path regex
-                                                 );
-
-        const QString regex = QLatin1String("(\\b") + fileRegex + QLatin1String("\\b)") // file names with no spaces
-                              + QLatin1Char('|')
-                              + QLatin1String("('") + fileRegex + QLatin1String("')");  // file names with spaces
-
-        re.setPattern(regex);
-    }
-
+    static auto re = QRegularExpression(
+        /* First part of the regexp means 'strings with spaces and starting with single quotes'
+         * Second part means "Strings with double quotes"
+         * Last part means "Everything else plus some special chars
+         * This is much smaller, and faster, than the previous regexp
+         * on the HotSpot creation we verify if this is indeed a file, so there's
+         * no problem on testing on random words on the screen.
+         */
+        QLatin1String(R"('[^']+'|"[^"]+"|[\w.~:-]+)"),
+        QRegularExpression::DontCaptureOption);
     setRegExp(re);
 }
 
@@ -582,8 +547,25 @@ FileFilter::HotSpot::~HotSpot() = default;
 
 QList<QAction *> FileFilter::HotSpot::actions()
 {
-    auto openAction = new QAction(this);
-    openAction->setText(i18n("Open File"));
-    QObject::connect(openAction, &QAction::triggered, this, [this ]{ activate(); });
-    return {openAction};
+    return {};
+}
+
+void FileFilter::HotSpot::setupMenu(QMenu *menu)
+{
+    // We are reusing the QMenu, but we need to update the actions anyhow.
+    // Remove the 'Open with' actions from it, then add the new ones.
+    QList<QAction*> toDelete;
+    for (auto *action : menu->actions()) {
+        if (action->text().toLower().remove(QLatin1Char('&')).contains(i18n("open with"))) {
+            toDelete.append(action);
+        }
+    }
+    qDeleteAll(toDelete);
+
+    const KFileItem fileItem(QUrl::fromLocalFile(_filePath));
+    const KFileItemList itemList({fileItem});
+    const KFileItemListProperties itemProperties(itemList);
+    _menuActions.setParent(this);
+    _menuActions.setItemListProperties(itemProperties);
+    _menuActions.addOpenWithActionsTo(menu);
 }
